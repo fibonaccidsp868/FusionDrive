@@ -1,0 +1,48 @@
+name: build-installers
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, sign (ad hoc) and package
+        shell: bash
+        run: bash build_mac.sh --no-install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FusionDrive-macOS
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up MSVC (whatever Visual Studio version the runner has)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install Ninja
+        run: python -m pip install ninja
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $vst = (Get-ChildItem -Path build -Recurse -Directory -Filter "FusionDrive.vst3" | Select-Object -First 1).FullName
+          if (-not $vst) { Write-Error "FusionDrive.vst3 not found"; exit 1 }
+          Write-Host "VST3 bundle: $vst"
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DVstDir=$vst" installer\windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FusionDrive-Windows
+          path: dist/*.exe
